@@ -21,31 +21,40 @@ class index(View):
     patt = ['\d{4}-\d\d-\d\d','\d{4}-\d-\d','\d{4}-\d-\d\d','\d{4}-\d\d-\d','\d{3}-\d\d-\d{4}','[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}']
     normal = ['patient',"hii","hello","Hii","Hello","HII","HELLO"]
     def get(self,request):
-        '''CREATE A SESSION OBJECT UNTIL USER RESET THE CHAT'''
-        request.session['UUID'] = None
         cache.delete('chat_history')
         return render(request,'index.html')
     def post(self, request):
-        # prompt from user
         text = request.POST.get('text')
+        '''Creating session to store patient uuid to answer questions based on previous data'''
+        if request.session.get('uuid', False):
+            print(request.session["uuid"])
+            find = request.session["last_quary_data"]
+        else:
+            UUID = finders.UUID(text)
+            DOB = finders.DOB(text)
+            DOD = finders.DOD(text)
+            SSN = finders.SSN(text)
+            First = finders.first_name(text)
+            Last = finders.last_name(text)
+
+            # Fetching filtered data from django models
+            if DOD is not None:
+                find = patients.objects.filter(
+                    Q(deathdate=DOD, ssn=SSN) | Q(ssn=SSN) | Q(deathdate=DOD) | Q(uuid=UUID) | Q(first=First,
+                                                                                                 last=Last) | Q(
+                        first=First) | Q(last=Last)
+                )
+            else:
+                find = patients.objects.filter(
+                    Q(ssn=SSN) | Q(birthdate=DOB) | Q(birthdate=DOB, ssn=SSN) | Q(uuid=UUID) | Q(first=First,
+                                                                                                 last=Last) | Q(
+                        first=First) | Q(last=Last)
+                )
+        # prompt from user
+
 
         # Details in user input
-        UUID = finders.UUID(text)
-        DOB = finders.DOB(text)
-        DOD = finders.DOD(text)
-        SSN = finders.SSN(text)
-        First = finders.first_name(text)
-        Last = finders.last_name(text)
 
-        # Fetching filtered data from django models
-        if DOD is not None:
-            find = patients.objects.filter(
-                Q(deathdate = DOD, ssn = SSN) | Q(ssn = SSN) | Q(deathdate = DOD) |  Q(uuid = UUID) |Q(first = First, last = Last) | Q(first = First) | Q(last = Last) 
-            )
-        else:
-            find = patients.objects.filter(
-                Q(ssn = SSN) | Q(birthdate = DOB) | Q(birthdate = DOB, ssn = SSN) | Q(uuid = UUID) |Q(first = First, last = Last) | Q(first = First) | Q(last = Last)
-                )
 
         # Redirect to next view after confirming patient
         yes_finder = finders.recognize_yes(text)
@@ -63,7 +72,12 @@ class index(View):
         if len(find)>1:
             answer = chat.chatting(request,f"{text}, more than one")
         elif len(find)==1:
+            request.session["last_quary_data"] = find
+            for row in find:
+                request.session["uuid"] = row.uuid
+                print(row.__dict__)
             answer = chat.chatting(request,f"{text}, found one")
+
             print(answer)
         else:
             checker = [word for word in index.patt if re.search(word,text)]
@@ -76,6 +90,11 @@ class index(View):
                 answer = chat.general_chat(text)
         for row in find:
             print(row.__dict__)
+        # if len(answer) == 7:
+        #     '''If User will again ask the question to ask the name of a patient than delete previous session'''
+        #     del request.session['uuid']
+        #     del request.session['find']
+        #     request.session.modified = True
         # Add new chat message to chat history in cache
         chat_history.append({'user': text, 'bot': answer, 'find':find})
         print(len(answer))
